@@ -1,2 +1,6 @@
 # misc
 GIT.md
+temp/
+
+# python
+__pycache__/
