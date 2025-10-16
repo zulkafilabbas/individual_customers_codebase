@@ -1,3 +1,13 @@
+# Running Nested Scripts (FOR NOW)
+Use `python -m <dir.dir.script>` in the root of the repository.
+
+Example:
+```bash
+(rerun_env) PS C:\...\individual_customers_codebase> 
+python -m test.test_configs
+python -m data_processing.data_extraction.configs_generator
+```
+
 # HDF5 Structure
 
 ```bash

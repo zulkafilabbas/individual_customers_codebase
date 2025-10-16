@@ -44,3 +44,6 @@ class JsonLoader:
                 children.setdefault(parent, []).append(jid)
 
         return {"joints": joints, "bones": bones, "children": children}
+
+    def get_data_extraction_settings(self):
+        return self._load_json("data_extraction_settings.json")
