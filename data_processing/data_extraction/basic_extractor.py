@@ -8,7 +8,7 @@ from rosbags.highlevel import AnyReader
 from data_processing.data_extraction.hdf5_utils import ensure_group, create_expandable_dataset
 from data_processing.data_extraction.label_extractor import insert_labels
 from data_processing.data_extraction.environment_extractor import insert_environment
-
+from data_processing.data_extraction.sensor_extractor import insert_sensors
 
 def load_config(path):
     with open(path, "r") as f:
@@ -135,6 +135,16 @@ def extract_to_hdf5(cfg):
             insert_environment(hdf, env_json)
         else:
             print("[INFO] No environment JSON found — skipping environment insertion.")
+
+        # ------------------ Insert sensors if available ------------------
+        sensors_cfg = cfg.get("extrinsics", {})
+        json_path = sensors_cfg.get("json_file", None)
+        # year = sensors_cfg.get("year", None)
+        if json_path and Path(json_path).exists():
+            print(f"[INFO] Inserting sensors from {json_path}")
+            insert_sensors(hdf)
+        else:
+            print("[INFO] No sensors JSON found — skipping sensors insertion.")
 
     print(f"Extraction complete: {output_path}")
 

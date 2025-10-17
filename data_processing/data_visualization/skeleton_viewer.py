@@ -4,6 +4,7 @@ from pathlib import Path
 from data_processing.data_visualization.skeleton_visualizer import SkeletonVisualizer
 from data_processing.data_visualization.label_visualizer import LabelVisualizer
 from data_processing.data_visualization.environment_visualizer import EnvironmentVisualizer
+from data_processing.data_visualization.sensor_visualizer import SensorVisualizer
 
 
 if __name__ == "__main__":
@@ -15,6 +16,8 @@ if __name__ == "__main__":
     parser.add_argument("--show-bones", action="store_true", help="Show bones (lines)")
     parser.add_argument("--show-labels", action="store_true", help="Show synchronized labels")
     parser.add_argument("--show-environment", action="store_true", help="Show environment")
+    parser.add_argument("--show-sensors", action="store_true", help="Show camera sensors")
+
     args = parser.parse_args()
 
     with h5py.File(Path(args.file), "r") as f:
@@ -32,6 +35,10 @@ if __name__ == "__main__":
             env_viz = EnvironmentVisualizer(show_environment=True)
             env_viz.visualize_all_objects(f)
 
+        # ------------------ Visualize sensors ------------------
+        if args.show_sensors:
+            sensor_viz = SensorVisualizer(show_sensors=True)
+            sensor_viz.visualize_sensors(f)
 
 # Plan for skeleton_viewer.py
 
