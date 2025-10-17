@@ -79,3 +79,5 @@ python -m data_processing.data_extraction.configs_generator
 ```(rerun_env) PS C:\...\individual_customers_codebase> python -m data_processing.data_visualization.skeleton_viewer --file C:\...\Desktop\individual_customers_codebase\dataset\2025-03-16_s2_merged_tracked.hdf5 --mode poses_fused --show-joints --show-bones --show-labels --show-environment```
 
 ```(rerun_env) PS C:\...\individual_customers_codebase> python -m data_processing.data_visualization.skeleton_viewer --file C:\...\Desktop\individual_customers_codebase\dataset\2025-03-16_s2_merged_tracked.hdf5 --mode poses_fused --show-joints --show-bones --show-labels --show-environment --show_sensors```
+
+```(rerun_env) PS C:\...\individual_customers_codebase> python -m data_processing.data_visualization.skeleton_viewer --file C:\...\Desktop\individual_customers_codebase\dataset\2025-03-16_s2_merged_tracked.hdf5 --mode poses_fused --show-joints --show-bones --show-labels --show-environment --show_sensors --active-sensors 1 2 3 4 5 6 --selected-sensors 3```

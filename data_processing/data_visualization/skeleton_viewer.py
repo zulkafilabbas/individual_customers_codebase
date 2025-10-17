@@ -17,6 +17,8 @@ if __name__ == "__main__":
     parser.add_argument("--show-labels", action="store_true", help="Show synchronized labels")
     parser.add_argument("--show-environment", action="store_true", help="Show environment")
     parser.add_argument("--show-sensors", action="store_true", help="Show camera sensors")
+    parser.add_argument("--active-sensors", nargs="*", type=int, default=[], help="List of active sensor IDs")
+    parser.add_argument("--selected-sensors", nargs="*", type=int, default=[], help="List of selected sensor IDs")
 
     args = parser.parse_args()
 
@@ -38,7 +40,13 @@ if __name__ == "__main__":
         # ------------------ Visualize sensors ------------------
         if args.show_sensors:
             sensor_viz = SensorVisualizer(show_sensors=True)
-            sensor_viz.visualize_sensors(f)
+            active = set(args.active_sensors or [])
+            selected = set(args.selected_sensors or [])
+            sensor_viz.visualize_sensors(f, active_sensors=active, selected_sensors=selected)
+            # Link into skeleton visualizer for dynamic updates
+            viz.sensor_viz = sensor_viz
+            sensor_viz.hdf = f
+
 
 # Plan for skeleton_viewer.py
 
