@@ -7,6 +7,7 @@ from rosbags.highlevel import AnyReader
 
 from data_processing.data_extraction.hdf5_utils import ensure_group, create_expandable_dataset
 from data_processing.data_extraction.label_extractor import insert_labels
+from data_processing.data_extraction.environment_extractor import insert_environment
 
 
 def load_config(path):
@@ -126,7 +127,17 @@ def extract_to_hdf5(cfg):
         else:
             print("[INFO] No TMV label file or mapping found — skipping label insertion.")
 
+        # ------------------ Insert environment if available ------------------
+        env_cfg = cfg.get("environment", {})
+        env_json = env_cfg.get("json_file", None)
+        if env_json and Path(env_json).exists():
+            print(f"[INFO] Inserting environment from {env_json}")
+            insert_environment(hdf, env_json)
+        else:
+            print("[INFO] No environment JSON found — skipping environment insertion.")
+
     print(f"Extraction complete: {output_path}")
+
 
 
 if __name__ == "__main__":

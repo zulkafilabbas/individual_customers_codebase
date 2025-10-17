@@ -3,6 +3,7 @@ import h5py
 from pathlib import Path
 from data_processing.data_visualization.skeleton_visualizer import SkeletonVisualizer
 from data_processing.data_visualization.label_visualizer import LabelVisualizer
+from data_processing.data_visualization.environment_visualizer import EnvironmentVisualizer
 
 
 if __name__ == "__main__":
@@ -13,7 +14,7 @@ if __name__ == "__main__":
     parser.add_argument("--show-joints", action="store_true", help="Show joints (points)")
     parser.add_argument("--show-bones", action="store_true", help="Show bones (lines)")
     parser.add_argument("--show-labels", action="store_true", help="Show synchronized labels")
-
+    parser.add_argument("--show-environment", action="store_true", help="Show environment")
     args = parser.parse_args()
 
     with h5py.File(Path(args.file), "r") as f:
@@ -25,6 +26,11 @@ if __name__ == "__main__":
         if args.show_labels:
             label_viz = LabelVisualizer(show_labels=True)
             label_viz.visualize_all(f, args.mode)
+        
+        # ------------------ Visualize environment ------------------
+        if args.show_environment:
+            env_viz = EnvironmentVisualizer(show_environment=True)
+            env_viz.visualize_all_objects(f)
 
 
 # Plan for skeleton_viewer.py
