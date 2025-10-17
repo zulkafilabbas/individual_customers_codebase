@@ -6,6 +6,7 @@ from pathlib import Path
 from rosbags.highlevel import AnyReader
 
 from data_processing.data_extraction.hdf5_utils import ensure_group, create_expandable_dataset
+from data_processing.data_extraction.label_extractor import insert_labels
 
 
 def load_config(path):
@@ -111,6 +112,19 @@ def extract_to_hdf5(cfg):
         if len(image_timestamps) > 0:
             image_topic_group.create_dataset("timestamps", data=np.array(image_timestamps, dtype="f8"))
             meta.attrs["video_start_time"] = image_timestamps[0]
+
+        # ------------------ Insert TMV labels if available ------------------
+        labels_cfg = cfg.get("labels", {})
+        tmv_file = labels_cfg.get("tmv_file", None)
+        mapping = {str(k): v for k, v in labels_cfg.get("mapping", {}).items()}
+
+        if tmv_file and Path(tmv_file).exists() and mapping:
+            print(f"[INFO] Merging TMV labels from {tmv_file}")
+            insert_labels(hdf, tmv_file, mapping)
+            meta.attrs["tmv_file"] = str(tmv_file)
+            meta.attrs["labels_are_relative"] = False  # since we use absolute timestamps
+        else:
+            print("[INFO] No TMV label file or mapping found — skipping label insertion.")
 
     print(f"Extraction complete: {output_path}")
 
