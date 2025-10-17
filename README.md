@@ -1,13 +1,3 @@
-# Running Nested Scripts (FOR NOW)
-Use `python -m <dir.dir.script>` in the root of the repository.
-
-Example:
-```bash
-(rerun_env) PS C:\...\individual_customers_codebase> 
-python -m test.test_configs
-python -m data_processing.data_extraction.configs_generator
-```
-
 # HDF5 Structure
 
 ```bash
@@ -69,3 +59,17 @@ python -m data_processing.data_extraction.configs_generator
             ├── xyz[3]
             └── ypr[3]
 ```
+
+# Running Nested Scripts (FOR NOW)
+Use `python -m <dir.dir.script>` in the root of the repository.
+
+Example:
+```bash
+(rerun_env) PS C:\...\individual_customers_codebase> 
+python -m test.test_configs
+python -m data_processing.data_extraction.configs_generator
+```
+
+```(rerun_env) PS C:\...\Desktop\individual_customers_codebase> python -m  data_processing.data_extraction.basic_extractor --config C:\...\Desktop\individual_customers_codebase\configs\2025-03-16_s2_merged_tracked_config.yaml```
+
+```(rerun_env) PS C:\...\individual_customers_codebase> python -m data_processing.data_visualization.skeleton_viewer --file C:\...\Desktop\individual_customers_codebase\dataset\2025-03-16_s2_merged_tracked.hdf5 --mode poses_fused --show-joints --show-bones```
