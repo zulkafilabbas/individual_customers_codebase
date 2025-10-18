@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+"""
+stable_selector.py
+--------------------------------
+Selects one skeleton from the set of raw poses available for each track (tid) at each timestamp. 
+The selected skeleton is the one that minimizes the cost function.
+
+The cost function is a weighted sum of the following components:
+- continuity  - prefer same sensor as previous frame
+- distance    - closer sensors preferred
+- line of sight - person is in line of sight of the sensor or occluded by an object or themselves
+- confidence  - "how good" is the detection according to the azure kinect sdk (track_states)
+
+Logic:
+- Reads all raw detections under /poses_raw/<tid>/source_<sid>.
+- For each frame, evaluates a simple cost per (tid, sid):
+    continuity  - prefer same sensor as previous frame
+    distance    - closer sensors preferred
+    line of sight - person is in line of sight of the sensor or occluded by an object or themselves
+    confidence  - "how good" is the detection according to the azure kinect sdk (track_states)
+- Keeps the best sensor as long as it remains active.
+- Writes final "stable" skeleton sequence to /poses_stable/<tid>, with timestamps, joints, and track_states, identical structure to /poses_fused/<tid>, just more stable.
+--------------------------------
+"""
+
+import numpy as np
+import h5py
+from scipy.spatial.transform import Rotation as R
+from common_utils.loader import JsonLoader
+
+class StableSelector:
+    def __init__(self, extrinsics_year="2025"):
+        loader = JsonLoader("common_utils")
+        self.extrinsics = loader.get_extrinsics(extrinsics_year)
+        self.skeleton = loader.get_skeleton()
+        self.joints = self.skeleton["joints"]
+        self.bones = self.skeleton["bones"]
+        self.environment = loader.get_environment()
+
+    def get_points_on_sphere(self, center, radius=0.1, n=100):
+        """Return n points roughly evenly distributed on a sphere surface (Fibonacci lattice)."""
+        # Fibonacci lattice method for approximately uniform sampling
+        indices = np.arange(0, n)
+        phi = 2 * np.pi * indices / ((1 + np.sqrt(5)) / 2)
+        theta = np.arccos(1 - 2*(indices + 0.5) / n)
+        x = radius * np.sin(theta) * np.cos(phi)
+        y = radius * np.sin(theta) * np.sin(phi)
+        z = radius * np.cos(theta)
+        return np.stack([x, y, z], axis=1) + center
+
+    def draw_joint_sphere(self, rr, joint_center, radius=0.1, n=100, name="joint_sphere"):
+        pts = self.get_points_on_sphere(joint_center, radius, n)
+        rr.log(name, rr.Points3D(pts, radii=0.005))
+
+    
+    def get_bone_vectors(self, joints):
+        """Return bone vectors for each bone in the skeleton."""
+        bone_vectors = []
+        for bone in self.bones:
+            child_joint = joints[bone[0]]
+            parent_joint = joints[bone[1]]
+            bone_vector = child_joint - parent_joint
+            bone_vectors.append(bone_vector)
+        return bone_vectors
+    
+    def build_body_cuboids(self, joints, thickness=0.03, shrink=0.8):
+        """Build simple cuboid geometries for each bone in the skeleton, optionally shrunk."""
+        cuboids = []
+        for child_idx, parent_idx in self.bones:
+            p1 = joints[parent_idx]
+            p2 = joints[child_idx]
+            axis = p2 - p1
+            length = np.linalg.norm(axis)
+            if length < 1e-6:
+                continue
+
+            # Apply shrink factor to length and offset endpoints
+            effective_length = length * shrink
+            axis_dir = axis / length
+            # Move center toward parent + child direction to keep alignment
+            new_center = p1 + axis_dir * (length * 0.5)  # original center
+            # But better: shift endpoints inwards by half the lost length
+            shift = (length - effective_length) * 0.5
+            new_p1 = p1 + axis_dir * shift
+            new_p2 = p2 - axis_dir * shift
+            center = (new_p1 + new_p2) / 2.0
+            axis_shrunk = new_p2 - new_p1
+            length_shrunk = np.linalg.norm(axis_shrunk)
+            if length_shrunk < 1e-6:
+                continue
+
+            axis_unit = axis_shrunk / length_shrunk
+
+            # Build rotation matrix to align Z → axis_unit
+            z_axis = np.array([0.0, 0.0, 1.0])
+            if np.allclose(axis_unit, z_axis):
+                rot = np.eye(3)
+            else:
+                v = np.cross(z_axis, axis_unit)
+                c = np.dot(z_axis, axis_unit)
+                s = np.linalg.norm(v)
+                vx = np.array([[0, -v[2], v[1]],
+                            [v[2], 0, -v[0]],
+                            [-v[1], v[0], 0]])
+                rot = np.eye(3) + vx + vx @ vx * ((1 - c) / (s**2))
+
+            # dims: thickness, thickness, shrunk length
+            dims = np.array([thickness, thickness, length_shrunk])
+            cuboids.append({"center": center, "dims": dims, "rotation": rot})
+
+        return cuboids
+
+
+    def draw_body_geometry(self, rr, joints, thickness=0.03, shrink=0.5):
+        """Visualize skeleton bones as cuboids using rerun Boxes3D."""
+        from scipy.spatial.transform import Rotation
+        cuboids = self.build_body_cuboids(joints, thickness, shrink)
+        for i, c in enumerate(cuboids):
+            quat = Rotation.from_matrix(c["rotation"]).as_quat()  # returns [x, y, z, w]
+            rr.log(
+                f"body_cuboid/{i}",
+                rr.Boxes3D(
+                    centers=[c["center"]],
+                    half_sizes=[c["dims"] / 2.0],
+                    quaternions=[quat],
+                    colors=[(150, 200, 255)],
+                ),
+            )
+
+    def draw_sensor_rays(self, rr, sensor_pos, sampled_points, color=(255, 0, 0)):
+        """Draw rays from a single sensor position to each sampled point."""
+        origins = np.repeat(sensor_pos[None, :], len(sampled_points), axis=0)
+        rr.log(
+            "sensor_rays",
+            rr.LineStrips3D(
+                np.stack([origins, sampled_points], axis=1),
+                colors=[color],
+            ),
+        )
+
+    def ray_intersects_cuboid(self, ray_origin, ray_dir, cuboid, eps=1e-6):
+        """
+        Ray–OBB intersection that also returns intersection distance.
+        Returns (hit, tmin)
+        """
+        center = cuboid["center"]
+        half_sizes = cuboid["dims"] / 2.0
+        R = cuboid["rotation"]
+
+        # Transform to cuboid local space
+        inv_R = R.T
+        local_origin = inv_R @ (ray_origin - center)
+        local_dir = inv_R @ ray_dir
+
+        tmin, tmax = -np.inf, np.inf
+        for i in range(3):
+            if abs(local_dir[i]) < eps:
+                if abs(local_origin[i]) > half_sizes[i]:
+                    return False, None
+            else:
+                t1 = (-half_sizes[i] - local_origin[i]) / local_dir[i]
+                t2 = ( half_sizes[i] - local_origin[i]) / local_dir[i]
+                if t1 > t2:
+                    t1, t2 = t2, t1
+                tmin = max(tmin, t1)
+                tmax = min(tmax, t2)
+                if tmin > tmax:
+                    return False, None
+
+        if tmax < eps:
+            return False, None  # behind
+        if tmin < eps:
+            return False, None  # ray starts inside or too close
+        return True, tmin
+

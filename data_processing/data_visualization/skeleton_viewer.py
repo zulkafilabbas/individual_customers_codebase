@@ -10,8 +10,12 @@ from data_processing.data_visualization.sensor_visualizer import SensorVisualize
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Visualize skeletons from extracted HDF5.")
     parser.add_argument("--file", required=True, help="Path to extracted .hdf5 file")
-    parser.add_argument("--mode", default="poses_raw",
-                        choices=["poses_raw", "poses_fused", "poses_stable"], help="Which group to visualize")
+    parser.add_argument(
+        "--mode",
+        choices=["poses_raw", "poses_fused", "poses_stable"],
+        default="poses_stable",
+        help="Which group to visualize",
+    )
     parser.add_argument("--show-joints", action="store_true", help="Show joints (points)")
     parser.add_argument("--show-bones", action="store_true", help="Show bones (lines)")
     parser.add_argument("--show-labels", action="store_true", help="Show synchronized labels")
@@ -21,6 +25,8 @@ if __name__ == "__main__":
     parser.add_argument("--selected-sensors", nargs="*", type=int, default=[], help="List of selected sensor IDs")
 
     args = parser.parse_args()
+
+    print(f"[INFO] Visualizing group: /{args.mode}")
 
     with h5py.File(Path(args.file), "r") as f:
         # ------------------ Visualize skeletons ------------------
