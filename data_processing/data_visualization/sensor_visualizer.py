@@ -7,11 +7,11 @@ from scipy.spatial.transform import Rotation as R
 class SensorVisualizer:
     """Visualizes camera sensors (xyz + ypr) from /sensors/<year>/<sensor_name>/."""
 
-    def __init__(self, show_sensors=True, axis_length=0.1, show_frustum=True, box_size=0.15):
+    def __init__(self, show_sensors=True, axis_length=0.1, show_frustum=True, box_size=0.15, box_length=0.1, box_width=0.025, box_height=0.1):
         self.show_sensors = show_sensors
         self.axis_length = axis_length
         self.show_frustum = show_frustum
-        self.box_size = np.array([box_size, box_size, box_size])
+        self.box_size = np.array([box_length, box_width, box_height])
         self.state_colors = {
             "inactive": [100, 100, 100, 255],
             "active": [255, 255, 0, 255],
