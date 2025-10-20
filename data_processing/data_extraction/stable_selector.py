@@ -237,6 +237,17 @@ class StableSelector:
         converted = []
         for obj in self.environment.get("objects", []):
             verts = np.array(obj["vertices"])
+
+            # Identify top 4 by max Z and shift them downward
+            # Ideally this should be done by the environment extractor or fixed in the environment json but for now this is a quick fix.
+            # Specifically sensor 14 was completely blocked due ot a high shelf, same happens with sensor 16!
+            # TODO: Fix this in the environment json.
+            
+            z_max = np.max(verts[:, 2])
+            mask = np.isclose(verts[:, 2], z_max, atol=1e-3)
+            verts[mask, 2] -= 0.1  # lower top plane by 0.2 m
+
+
             if verts.shape != (8, 3):
                 continue
 
