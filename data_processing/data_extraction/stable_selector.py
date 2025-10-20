@@ -36,6 +36,7 @@ class StableSelector:
         self.joints = self.skeleton["joints"]
         self.bones = self.skeleton["bones"]
         self.environment = loader.get_environment()
+        self.convert_environment_objects()
 
     def get_points_on_sphere(self, center, radius=0.1, n=100):
         """Return n points roughly evenly distributed on a sphere surface (Fibonacci lattice)."""
@@ -62,51 +63,108 @@ class StableSelector:
             bone_vector = child_joint - parent_joint
             bone_vectors.append(bone_vector)
         return bone_vectors
-    
-    def build_body_cuboids(self, joints, thickness=0.03, shrink=0.8):
-        """Build simple cuboid geometries for each bone in the skeleton, optionally shrunk."""
+
+    def build_body_cuboids(self, joints, thickness=0.04, shrink=0.85):
+        """
+        Build simplified body geometry with ~12 blocks.
+        Torso sides use 4-joint regions; limbs use 2-joint cuboids.
+        """
         cuboids = []
-        for child_idx, parent_idx in self.bones:
-            p1 = joints[parent_idx]
-            p2 = joints[child_idx]
-            axis = p2 - p1
-            length = np.linalg.norm(axis)
-            if length < 1e-6:
-                continue
 
-            # Apply shrink factor to length and offset endpoints
-            effective_length = length * shrink
-            axis_dir = axis / length
-            # Move center toward parent + child direction to keep alignment
-            new_center = p1 + axis_dir * (length * 0.5)  # original center
-            # But better: shift endpoints inwards by half the lost length
-            shift = (length - effective_length) * 0.5
-            new_p1 = p1 + axis_dir * shift
-            new_p2 = p2 - axis_dir * shift
-            center = (new_p1 + new_p2) / 2.0
-            axis_shrunk = new_p2 - new_p1
-            length_shrunk = np.linalg.norm(axis_shrunk)
-            if length_shrunk < 1e-6:
-                continue
+        # --- Per-axis shrink factors for each region ---
+        # length, width, height
+        region_shrink = {
+            "right_torso": (0.9, 0.1, 0.5),
+            "left_torso":  (0.9, 0.1, 0.5),
+            "right_clavicle_block": (1.0, 1.0, 1.0),
+            "left_clavicle_block": (1.0, 1.0, 1.0),
+            "right_upper_arm": (0.85, 0.85, 0.85),
+            "left_upper_arm": (0.85, 0.85, 0.85),
+            "right_lower_arm": (0.8, 0.8, 0.8),
+            "left_lower_arm": (0.8, 0.8, 0.8),
+            "right_upper_leg": (1.3, 1.3, 0.95),
+            "left_upper_leg": (1.3, 1.3, 0.95),
+            "right_lower_leg": (1.3, 1.3, 0.95),
+            "left_lower_leg": (1.3, 1.3, 0.95),
+            "head_block": (1.1, 1.1, 1.4),  # nose, left_eye, right_eye, head(back)
+        }
 
-            axis_unit = axis_shrunk / length_shrunk
+        # --- Region definitions (joint indices) ---
+        regions = [
+            ("right_torso", [12, 11, 0, 22]),  # shoulder, clavicle, pelvis, hip
+            ("left_torso", [5, 4, 0, 18]),
+            ("right_clavicle_block", [11, 12]),
+            ("left_clavicle_block", [4, 5]),
+            ("right_upper_arm", [12, 13]),
+            ("left_upper_arm", [5, 6]),
+            ("right_lower_arm", [13, 14]),
+            ("left_lower_arm", [6, 7]),
+            ("right_upper_leg", [22, 23]),
+            ("left_upper_leg", [18, 19]),
+            ("right_lower_leg", [23, 24]),
+            ("left_lower_leg", [19, 20]),
+            ("head_block", [29, 31]),  # left_ear, right_ear indices
+        ]
 
-            # Build rotation matrix to align Z → axis_unit
-            z_axis = np.array([0.0, 0.0, 1.0])
-            if np.allclose(axis_unit, z_axis):
-                rot = np.eye(3)
-            else:
-                v = np.cross(z_axis, axis_unit)
-                c = np.dot(z_axis, axis_unit)
-                s = np.linalg.norm(v)
-                vx = np.array([[0, -v[2], v[1]],
-                            [v[2], 0, -v[0]],
-                            [-v[1], v[0], 0]])
-                rot = np.eye(3) + vx + vx @ vx * ((1 - c) / (s**2))
+        for name, joint_idxs in regions:
+            # 2. Retrieve correct per-axis shrink tuple (default to 1,1,1)
+            sx, sy, sz = region_shrink.get(name, (1.0, 1.0, 1.0))
 
-            # dims: thickness, thickness, shrunk length
-            dims = np.array([thickness, thickness, length_shrunk])
-            cuboids.append({"center": center, "dims": dims, "rotation": rot})
+            if len(joint_idxs) == 2:
+                # --- Standard bone cuboid (2-joint case) ---
+                j1, j2 = joints[joint_idxs]
+                axis = j2 - j1
+                length = np.linalg.norm(axis)
+                if length < 1e-6:
+                    continue
+
+                effective_length = length * shrink
+                axis_dir = axis / length
+                shift = (length - effective_length) * 0.5
+                p1 = j1 + axis_dir * shift
+                p2 = j2 - axis_dir * shift
+                center = (p1 + p2) / 2.0
+                axis_unit = (p2 - p1) / np.linalg.norm(p2 - p1)
+
+                z_axis = np.array([0, 0, 1.0])
+                if np.allclose(axis_unit, z_axis):
+                    rot = np.eye(3)
+                else:
+                    v = np.cross(z_axis, axis_unit)
+                    c = np.dot(z_axis, axis_unit)
+                    s = np.linalg.norm(v)
+                    vx = np.array([[0, -v[2], v[1]],
+                                [v[2], 0, -v[0]],
+                                [-v[1], v[0], 0]])
+                    rot = np.eye(3) + vx + vx @ vx * ((1 - c) / (s**2))
+                # 3. Apply three shrink factors to cuboid dims
+                dims = np.array([thickness * sx, thickness * sy, effective_length * sz])
+                cuboids.append({"name": name, "center": center, "dims": dims, "rotation": rot})
+
+            elif len(joint_idxs) == 4:
+                # --- Approximate torso polygon as oriented box ---
+                pts = joints[joint_idxs]
+                center = np.mean(pts, axis=0)
+                v1 = pts[0] - pts[2]
+                v2 = pts[1] - pts[3]
+                width = np.linalg.norm(v1) * 0.5
+                height = np.linalg.norm(v2) * 0.5
+                rot_axis = np.cross(v1, v2)
+                if np.linalg.norm(rot_axis) < 1e-6:
+                    rot = np.eye(3)
+                else:
+                    rot_axis /= np.linalg.norm(rot_axis)
+                    z_axis = np.array([0, 0, 1])
+                    v = np.cross(z_axis, rot_axis)
+                    c = np.dot(z_axis, rot_axis)
+                    s = np.linalg.norm(v)
+                    vx = np.array([[0, -v[2], v[1]],
+                                [v[2], 0, -v[0]],
+                                [-v[1], v[0], 0]])
+                    rot = np.eye(3) + vx + vx @ vx * ((1 - c) / (s**2))
+                # 3. Apply three shrink factors to torso cuboid dims
+                dims = np.array([width * sx, height * sy, thickness * 2 * sz])
+                cuboids.append({"name": name, "center": center, "dims": dims, "rotation": rot})
 
         return cuboids
 
@@ -127,14 +185,15 @@ class StableSelector:
                 ),
             )
 
-    def draw_sensor_rays(self, rr, sensor_pos, sampled_points, color=(255, 0, 0)):
-        """Draw rays from a single sensor position to each sampled point."""
+    def draw_sensor_rays(self, rr, sensor_pos, sampled_points, color=(255, 0, 0), thickness=0.0005):
+        """Draw rays from a single sensor position to each sampled point, with configurable thickness."""
         origins = np.repeat(sensor_pos[None, :], len(sampled_points), axis=0)
         rr.log(
             "sensor_rays",
             rr.LineStrips3D(
                 np.stack([origins, sampled_points], axis=1),
                 colors=[color],
+                radii=thickness,
             ),
         )
 
@@ -173,3 +232,55 @@ class StableSelector:
             return False, None  # ray starts inside or too close
         return True, tmin
 
+    def convert_environment_objects(self):
+        """Convert 8-vertex cuboids into {center, dims, rotation} format for occlusion."""
+        converted = []
+        for obj in self.environment.get("objects", []):
+            verts = np.array(obj["vertices"])
+            if verts.shape != (8, 3):
+                continue
+
+            # Compute center as average of all vertices
+            center = np.mean(verts, axis=0)
+
+            # Define three local axes from edges
+            v1 = verts[1] - verts[0]  # X-axis
+            v2 = verts[3] - verts[0]  # Y-axis
+            v3 = verts[4] - verts[0]  # Z-axis
+
+            # Dimensions (lengths along local axes)
+            dims = np.array([np.linalg.norm(v1), np.linalg.norm(v2), np.linalg.norm(v3)])
+
+            # Normalize to get rotation basis
+            x_axis = v1 / np.linalg.norm(v1)
+            y_axis = v2 / np.linalg.norm(v2)
+            z_axis = v3 / np.linalg.norm(v3)
+            rotation = np.stack([x_axis, y_axis, z_axis], axis=1)
+
+            converted.append({
+                "name": obj.get("name", "env_object"),
+                "center": center,
+                "dims": dims,
+                "rotation": rotation,
+            })
+        self.environment = converted # replace raw vertices with {center, dims, rotation} OBBs for occlusion checking
+
+    def draw_environment_cuboids(self, rr, color=(200, 200, 200)):
+        """Visualize environment objects as Boxes3D in rerun."""
+        from scipy.spatial.transform import Rotation
+        import numpy as np
+        for i, obj in enumerate(self.environment):
+            rotation = obj["rotation"].copy()
+            # Ensure right-handed (determinant > 0)
+            if np.linalg.det(rotation) < 0:
+                rotation[:, 2] *= -1
+            quat = Rotation.from_matrix(rotation).as_quat()
+            rr.log(
+                f"environment_cuboid/{i}",
+                rr.Boxes3D(
+                    centers=[obj["center"]],
+                    half_sizes=[obj["dims"] / 2.0],
+                    quaternions=[quat],
+                    colors=[color],
+                ),
+            )
