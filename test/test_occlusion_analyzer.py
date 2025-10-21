@@ -45,7 +45,7 @@ for jid, (name, _) in joints.items():
     if name in important_front_joints:
         joint_weights[jid] = 3.0  # assign 3× weight
     elif name in important_arm_joints:
-        joint_weights[jid] = 2.0  # assign 2× weight
+        joint_weights[jid] = 10.0  # assign 10× weight
 
 def weighted_visibility(vis_per_joint, joint_weights):
     # vis_per_joint: dict{joint_idx: visibility_fraction} for this skeleton in this frame
@@ -149,6 +149,12 @@ with h5py.File(path, "r") as f:
             vis_per_joint = analyzer.analyze_source_frame(sensors[sid], src_joints, n_samples=N_SAMPLES)
             weighted_mean = weighted_visibility(vis_per_joint, joint_weights)
             print(f"Sensor {sid} weighted visibility: {weighted_mean:.2f}")
+
+            # Log per-frame weighted visibility to Rerun (as time series)
+            rr.log(
+                f"metrics/sensor_{sid:02d}/weighted_visibility",
+                rr.Scalars(weighted_mean)
+            )
 
             # --- Visualization per frame ---
             viz.draw_obstacles(body_obstacles, prefix=f"{frame_prefix}/source_{sid}/body")
