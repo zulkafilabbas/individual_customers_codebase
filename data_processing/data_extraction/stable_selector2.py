@@ -29,7 +29,7 @@ from common_utils.loader import JsonLoader
 from data_processing.data_visualization.sensor_visualizer import SensorVisualizer
 
 class StableSelector:
-    def __init__(self, extrinsics_year="2025", continuity_window_sec=3.0):
+    def __init__(self, extrinsics_year="2025", continuity_window_sec=10.0):
         from data_processing.data_extraction.occlusion_analyzer import OcclusionAnalyzer, Source, Obstacle
         from common_utils.loader import JsonLoader
         loader = JsonLoader("common_utils")
@@ -52,6 +52,18 @@ class StableSelector:
         self.environment = self._convert_environment()
         self.joint_weights = self._build_joint_weights()
         self.sensor_history = []
+
+        # Added: tracks per-sensor cost history for smoothing
+        from collections import deque
+        self.recent_costs = {}  # sid -> deque(maxlen=15)
+
+    def _smoothed_cost(self, sid, new_cost):
+        from collections import deque
+        if sid not in self.recent_costs:
+            self.recent_costs[sid] = deque(maxlen=60)
+        q = self.recent_costs[sid]
+        q.append(new_cost)
+        return np.mean(q)
 
     def _convert_environment(self):
         out = []
@@ -199,7 +211,7 @@ class StableSelector:
     def _compute_cost(self, sid, joints):
         v = 1.0 - self._compute_visibility(sid,joints)
         d = self._compute_distance_penalty(sid,joints)
-        return 0.6*v + 0.4*d
+        return 5*v + 0.1*d
 
     def select_and_visualize(self, f, tid, rr):
         rr.init("StableSelectorV2 Visualization", spawn=True)
@@ -231,19 +243,25 @@ class StableSelector:
                 if abs(ts_array[idx] - t) > 0.05:
                     continue
                 joints = source_data[sid]["joints"][idx]
-                frame_costs[sid] = self._compute_cost(int(sid.split("_")[-1]), joints)
+                # Smooth the per-sensor cost (moving average over last 15 frames)
+                raw_cost = self._compute_cost(int(sid.split("_")[-1]), joints)
+                smoothed_cost = self._smoothed_cost(int(sid.split("_")[-1]), raw_cost)
+                frame_costs[sid] = smoothed_cost
 
             if not frame_costs:
                 continue
             best_sid = min(frame_costs, key=frame_costs.get)
 
-            # continuity logic
+            # Stricter continuity logic: higher tolerance + persistence
             if last_sid is not None:
                 recent = [s for s in self.sensor_history if t - s[0] <= self.continuity_window_sec]
                 if recent and recent[-1][1] == last_sid:
                     curr_cost = frame_costs.get(last_sid, None)
-                    if curr_cost is not None and curr_cost < min(frame_costs.values()) * 1.1:
-                        best_sid = last_sid
+                    if curr_cost is not None:
+                        best_cost = min(frame_costs.values())
+                        # stay if within 30% or if we have been stable for a few seconds (>=10 frames)
+                        if curr_cost < best_cost * 1.3 or len(recent) >= 10:
+                            best_sid = last_sid
 
             self.sensor_history.append((t, best_sid))
             last_sid = best_sid
