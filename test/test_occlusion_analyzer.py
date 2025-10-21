@@ -8,11 +8,55 @@ from data_processing.data_visualization.sensor_visualizer import SensorVisualize
 from data_processing.data_extraction.occlusion_analyzer import (
     Ray, Obstacle, JointSphere, RayBundle, OcclusionAnalyzer, OcclusionVisualizer, Source
 )
+from common_utils.loader import JsonLoader
+
+# --- Skeleton + joint weighting setup ---
+loader = JsonLoader("common_utils")
+skeleton = loader.get_skeleton()
+joints = skeleton["joints"]  # {idx: (name, parent)}
+
+# Assign weight=1 to all joints by default
+joint_weights = {jid: 1.0 for jid in joints}
+
+# More importance for arm and front-of-head joints
+important_front_joints = {
+    "NECK",
+    "EYE_LEFT",
+    "EYE_RIGHT",
+    "NOSE",
+    "SPINE_CHEST",
+    "CLAVICLE_LEFT",
+    "CLAVICLE_RIGHT",
+}
+
+important_arm_joints = {
+    "SHOULDER_LEFT",
+    "SHOULDER_RIGHT",
+    "ELBOW_LEFT",
+    "ELBOW_RIGHT",
+    "WRIST_LEFT",
+    "WRIST_RIGHT",
+}
+
+print(important_front_joints)
+print(important_arm_joints)
+
+for jid, (name, _) in joints.items():
+    if name in important_front_joints:
+        joint_weights[jid] = 3.0  # assign 3× weight
+    elif name in important_arm_joints:
+        joint_weights[jid] = 2.0  # assign 2× weight
+
+def weighted_visibility(vis_per_joint, joint_weights):
+    # vis_per_joint: dict{joint_idx: visibility_fraction} for this skeleton in this frame
+    weights = np.array([joint_weights[j] for j in vis_per_joint.keys()])
+    values = np.array(list(vis_per_joint.values()))
+    return np.average(values, weights=weights)
 
 # --------------------------------------------
 # Configurable parameters
 # --------------------------------------------
-N_SAMPLES = 10
+N_SAMPLES = 50
 # MAX_FRAMES = 5   # limit for debugging; set None for all frames
 MAX_FRAMES = None # all frames
 
@@ -103,7 +147,8 @@ with h5py.File(path, "r") as f:
             analyzer = OcclusionAnalyzer(obstacles_for_this_detection, sensors)
 
             vis_per_joint = analyzer.analyze_source_frame(sensors[sid], src_joints, n_samples=N_SAMPLES)
-            print(f"Sensor {sid} mean visibility: {np.mean(list(vis_per_joint.values())):.2f}")
+            weighted_mean = weighted_visibility(vis_per_joint, joint_weights)
+            print(f"Sensor {sid} weighted visibility: {weighted_mean:.2f}")
 
             # --- Visualization per frame ---
             viz.draw_obstacles(body_obstacles, prefix=f"{frame_prefix}/source_{sid}/body")
