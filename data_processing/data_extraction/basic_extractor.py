@@ -9,7 +9,7 @@ from data_processing.data_extraction.hdf5_utils import ensure_group, create_expa
 from data_processing.data_extraction.label_extractor import insert_labels
 from data_processing.data_extraction.environment_extractor import insert_environment
 from data_processing.data_extraction.sensor_extractor import insert_sensors
-from data_processing.data_extraction.stable_selector import StableSelector
+from data_processing.data_extraction.stable_selector2 import StableSelector
 
 def load_config(path):
     with open(path, "r") as f:
@@ -148,14 +148,14 @@ def extract_to_hdf5(cfg):
             print("[INFO] No sensors JSON found — skipping sensors insertion.")
 
         # ------------------ Select stable skeletons ------------------
-        # try:
-        #     print("[INFO] Selecting stable skeletons...")
-        #     selector = StableSelector(extrinsics_year="2025")
-        #     selector.select_stable(hdf)
-        #     print("[INFO] Stable skeletons written to /poses_stable")
-        # except Exception as e:
-        #     print(f"[WARN] Stable selection failed: {e}")
-
+        try:
+            print("[INFO] Selecting stable skeletons...")
+            selector = StableSelector(extrinsics_year="2025")
+            for tid in hdf["poses_raw"].keys():
+                selector.select_stable_for_tid(hdf, tid)
+            print("[INFO] Stable skeletons written to /poses_stable")
+        except Exception as e:
+            print(f"[WARN] Stable selection failed: {e}")
 
     print(f"Extraction complete: {output_path}")
 

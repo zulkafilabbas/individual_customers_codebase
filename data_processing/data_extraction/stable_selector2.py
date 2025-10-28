@@ -290,3 +290,58 @@ class StableSelector:
 
             rr.log("costs", rr.Scalars(frame_costs))
 
+
+    def select_stable_for_tid(self, f, tid):
+        poses_stable = f.require_group("poses_stable")
+        tid_group = poses_stable.require_group(str(tid))
+
+        sources = list(f[f"poses_raw/{tid}"].keys())
+        source_data = {
+            sid: {
+                "timestamps": f[f"poses_raw/{tid}/{sid}/0/timestamps"][:],
+                "joints": f[f"poses_raw/{tid}/{sid}/0/joints"][:],
+            }
+            for sid in sources
+        }
+
+        all_ts = np.unique(np.concatenate([v["timestamps"] for v in source_data.values()]))
+        last_sid = None
+        selected_joints = []
+        selected_timestamps = []
+
+        for t in all_ts:
+            frame_costs = {}
+            for sid in sources:
+                ts_array = source_data[sid]["timestamps"]
+                idx = np.argmin(np.abs(ts_array - t))
+                if abs(ts_array[idx] - t) > 0.05:
+                    continue
+                joints = source_data[sid]["joints"][idx]
+                raw_cost = self._compute_cost(int(sid.split("_")[-1]), joints)
+                smoothed_cost = self._smoothed_cost(int(sid.split("_")[-1]), raw_cost)
+                frame_costs[sid] = smoothed_cost
+
+            if not frame_costs:
+                continue
+            best_sid = min(frame_costs, key=frame_costs.get)
+
+            if last_sid is not None:
+                recent = [s for s in self.sensor_history if t - s[0] <= self.continuity_window_sec]
+                if recent and recent[-1][1] == last_sid:
+                    curr_cost = frame_costs.get(last_sid, None)
+                    if curr_cost is not None:
+                        best_cost = min(frame_costs.values())
+                        if curr_cost < best_cost * 1.3 or len(recent) >= 10:
+                            best_sid = last_sid
+
+            self.sensor_history.append((t, best_sid))
+            last_sid = best_sid
+
+            joints = source_data[best_sid]["joints"][np.argmin(
+                np.abs(source_data[best_sid]["timestamps"] - t)
+            )]
+            selected_timestamps.append(t)
+            selected_joints.append(joints)
+
+        tid_group.create_dataset("timestamps", data=np.array(selected_timestamps, dtype="f8"))
+        tid_group.create_dataset("joints", data=np.array(selected_joints, dtype="f4"))
